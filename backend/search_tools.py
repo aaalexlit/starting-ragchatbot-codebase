@@ -1,5 +1,6 @@
 from typing import Dict, Any, Optional, Protocol
 from abc import ABC, abstractmethod
+import json
 from vector_store import VectorStore, SearchResults
 from models import Source
 
@@ -121,6 +122,112 @@ class CourseSearchTool(Tool):
         self.last_sources = sources
 
         return "\n\n".join(formatted)
+
+
+class CourseOutlineTool(Tool):
+    """Tool for retrieving complete course outline with lesson structure"""
+
+    def __init__(self, vector_store: VectorStore):
+        self.store = vector_store
+        self.last_sources = []  # Track lesson links as Source objects
+
+    def get_tool_definition(self) -> Dict[str, Any]:
+        """Return Anthropic tool definition for this tool"""
+        return {
+            "name": "get_course_outline",
+            "description": "Get complete course outline including course title, link, instructor, and all lessons with numbers and titles. Use when users ask about course structure or lesson list.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "course_name": {
+                        "type": "string",
+                        "description": "Course title (partial matches work, e.g. 'MCP', 'Introduction')"
+                    }
+                },
+                "required": ["course_name"]
+            }
+        }
+
+    def execute(self, course_name: str) -> str:
+        """
+        Execute the outline tool with given course name.
+
+        Args:
+            course_name: Course title (supports partial/fuzzy matching)
+
+        Returns:
+            Formatted course outline or error message
+        """
+
+        # 1. Resolve course name using fuzzy matching
+        resolved_title = self.store._resolve_course_name(course_name)
+
+        # 2. Handle course not found
+        if not resolved_title:
+            existing_courses = self.store.get_existing_course_titles()
+            if existing_courses:
+                course_list = ", ".join(existing_courses)
+                return f"No course found matching '{course_name}'. Available courses: {course_list}"
+            return "No courses available in the system."
+
+        # 3. Get course metadata
+        result = self.store.course_catalog.get(ids=[resolved_title])
+        if not result['metadatas'] or len(result['metadatas']) == 0:
+            return f"Error: Unable to retrieve metadata for '{resolved_title}'"
+
+        metadata = result['metadatas'][0]
+
+        # 4. Extract course info
+        course_title = metadata.get('title', 'Unknown')
+        course_link = metadata.get('course_link')
+        instructor = metadata.get('instructor', 'Unknown')
+        lessons_json = metadata.get('lessons_json', '[]')
+
+        # 5. Parse lessons
+        try:
+            lessons = json.loads(lessons_json)
+        except json.JSONDecodeError:
+            lessons = []
+
+        # 6. Format output and create sources
+        return self._format_outline(course_title, course_link, instructor, lessons)
+
+    def _format_outline(self, course_title: str, course_link: str, instructor: str, lessons: list) -> str:
+        """Format course outline and populate last_sources with lesson links"""
+        formatted = []
+        sources = []
+
+        # Course header
+        formatted.append(f"Course: {course_title}")
+        if course_link:
+            formatted.append(f"Link: {course_link}")
+        formatted.append(f"Instructor: {instructor}")
+        formatted.append("")  # Blank line
+        formatted.append("Lessons:")
+
+        # Format each lesson and create Source objects
+        if lessons:
+            for lesson in lessons:
+                lesson_num = lesson.get('lesson_number')
+                lesson_title = lesson.get('lesson_title', 'Untitled')
+                lesson_link = lesson.get('lesson_link')
+
+                # Format text without visible URL
+                formatted.append(f"- Lesson {lesson_num}: {lesson_title}")
+
+                # Create Source object for clickable link
+                if lesson_link:
+                    source_text = f"{course_title} - Lesson {lesson_num}"
+                    source_obj = Source(text=source_text, link=lesson_link)
+                    sources.append(source_obj)
+        else:
+            formatted.append("- No lessons available")
+
+        # Store sources for UI
+        self.last_sources = sources
+
+        return "\n".join(formatted)
+
 
 class ToolManager:
     """Manages available tools for the AI"""
