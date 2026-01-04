@@ -116,12 +116,11 @@ header h1 {
     width: 100%;
     display: flex;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-start;
     gap: 0.5rem;
-    padding: 0.875rem 1rem;
-    background: var(--background);
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
+    padding: 0.5rem 0;
+    background: none;
+    border: none;
     color: var(--text-secondary);
     font-size: 0.875rem;
     font-weight: 600;
@@ -133,14 +132,11 @@ header h1 {
 }
 
 .new-chat-button:hover {
-    background: var(--surface-hover);
-    border-color: var(--primary-color);
     color: var(--primary-color);
-    transform: translateY(-1px);
 }
 
 .new-chat-button:active {
-    transform: translateY(0) scale(0.98);
+    transform: none;
 }
 
 .new-chat-button:focus {
